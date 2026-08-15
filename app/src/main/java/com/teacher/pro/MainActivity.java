@@ -4,13 +4,9 @@ import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.pdf.PdfDocument;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
-import android.provider.MediaStore;
-import android.print.PrintAttributes;
-import android.print.PrintManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -23,7 +19,6 @@ import androidx.core.content.FileProvider;
 
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.OutputStream;
 import java.util.Base64;
 
 public class MainActivity extends Activity {
@@ -41,13 +36,12 @@ public class MainActivity extends Activity {
         setContentView(webView);
 
         WebSettings settings = webView.getSettings();
+
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
         settings.setDatabaseEnabled(true);
-
-        webView.setWebViewClient(new WebViewClient());
 
         webView.setWebChromeClient(new WebChromeClient() {
 
@@ -64,15 +58,24 @@ public class MainActivity extends Activity {
                 filePathCallback = callback;
 
                 try {
+
                     Intent intent = params.createIntent();
-                    startActivityForResult(intent, FILE_CHOOSER_REQUEST);
+
+                    startActivityForResult(
+                            intent,
+                            FILE_CHOOSER_REQUEST
+                    );
+
                 } catch (ActivityNotFoundException e) {
+
                     filePathCallback = null;
+
                     Toast.makeText(
                             MainActivity.this,
                             "لا يمكن فتح مدير الملفات",
                             Toast.LENGTH_LONG
                     ).show();
+
                     return false;
                 }
 
@@ -88,74 +91,126 @@ public class MainActivity extends Activity {
                 "AndroidBridge"
         );
 
-        webView.loadUrl("file:///android_asset/index.html");
-
         /*
-         * بعد تحميل الصفحة نربط وظائف الحفظ والمشاركة والطباعة
+         * تحميل صفحة التطبيق
          */
         webView.setWebViewClient(new WebViewClient() {
+
             @Override
-            public void onPageFinished(WebView view, String url) {
+            public void onPageFinished(
+                    WebView view,
+                    String url) {
+
                 super.onPageFinished(view, url);
+
                 injectAndroidFunctions();
             }
         });
+
+        webView.loadUrl(
+                "file:///android_asset/index.html"
+        );
     }
 
+    /*
+     * ربط وظائف Android مع JavaScript
+     */
     private void injectAndroidFunctions() {
 
         String js =
                 "(function() {" +
 
                 "window.saveAs = function(blob, filename) {" +
-                "  var reader = new FileReader();" +
-                "  reader.onloadend = function() {" +
-                "    AndroidBridge.saveFile(reader.result, filename);" +
-                "  };" +
-                "  reader.readAsDataURL(blob);" +
+
+                "var reader = new FileReader();" +
+
+                "reader.onloadend = function() {" +
+
+                "AndroidBridge.saveFile(" +
+                "reader.result, filename" +
+                ");" +
+
                 "};" +
 
-                "if (!navigator.share) navigator.share = function(data) {" +
-                "  if (data && data.files && data.files.length) {" +
-                "    var file = data.files[0];" +
-                "    return new Promise(function(resolve, reject) {" +
-                "      var reader = new FileReader();" +
-                "      reader.onloadend = function() {" +
-                "        AndroidBridge.shareFile(reader.result, file.name, file.type);" +
-                "        resolve();" +
-                "      };" +
-                "      reader.onerror = reject;" +
-                "      reader.readAsDataURL(file);" +
-                "    });" +
-                "  }" +
-                "  return Promise.reject('لا توجد ملفات للمشاركة');" +
+                "reader.readAsDataURL(blob);" +
+
                 "};" +
 
-                "navigator.canShare = function() { return true; };" +
+                "if (!navigator.share) " +
+                "navigator.share = function(data) {" +
+
+                "if (data && data.files && data.files.length) {" +
+
+                "var file = data.files[0];" +
+
+                "return new Promise(function(resolve, reject) {" +
+
+                "var reader = new FileReader();" +
+
+                "reader.onloadend = function() {" +
+
+                "AndroidBridge.shareFile(" +
+                "reader.result, file.name, file.type" +
+                ");" +
+
+                "resolve();" +
+
+                "};" +
+
+                "reader.onerror = reject;" +
+
+                "reader.readAsDataURL(file);" +
+
+                "});" +
+
+                "}" +
+
+                "return Promise.reject(" +
+                "'لا توجد ملفات للمشاركة'" +
+                ");" +
+
+                "};" +
+
+                "navigator.canShare = function() {" +
+                "return true;" +
+                "};" +
 
                 "})();";
 
-        webView.evaluateJavascript(js, null);
+        webView.evaluateJavascript(
+                js,
+                null
+        );
     }
 
+    /*
+     * جسر JavaScript مع Android
+     */
     public class AndroidBridge {
 
-        private Context context;
+        private final Context context;
 
         AndroidBridge(Context context) {
             this.context = context;
         }
 
+        /*
+         * حفظ الملف
+         */
         @JavascriptInterface
-        public void saveFile(String dataUrl, String filename) {
+        public void saveFile(
+                String dataUrl,
+                String filename) {
 
             try {
 
-                String base64 = dataUrl.substring(
-                        dataUrl.indexOf(",") + 1
-                );
+                String base64 =
+                        dataUrl.substring(
+                                dataUrl.indexOf(",") + 1
+                        );
 
-                byte[] data = Base64.getDecoder().decode(base64);
+                byte[] data =
+                        Base64.getDecoder().decode(base64);
 
                 File downloads =
                         Environment.getExternalStoragePublicDirectory(
@@ -166,7 +221,11 @@ public class MainActivity extends Activity {
                     downloads.mkdirs();
                 }
 
-                File file = new File(downloads, filename);
+                File file =
+                        new File(
+                                downloads,
+                                filename
+                        );
 
                 FileOutputStream output =
                         new FileOutputStream(file);
@@ -195,6 +254,9 @@ public class MainActivity extends Activity {
             }
         }
 
+        /*
+         * مشاركة الملف
+         */
         @JavascriptInterface
         public void shareFile(
                 String dataUrl,
@@ -203,9 +265,10 @@ public class MainActivity extends Activity {
 
             try {
 
-                String base64 = dataUrl.substring(
-                        dataUrl.indexOf(",") + 1
-                );
+                String base64 =
+                        dataUrl.substring(
+                                dataUrl.indexOf(",") + 1
+                        );
 
                 byte[] data =
                         Base64.getDecoder().decode(base64);
@@ -221,7 +284,10 @@ public class MainActivity extends Activity {
                 }
 
                 File file =
-                        new File(shareDir, filename);
+                        new File(
+                                shareDir,
+                                filename
+                        );
 
                 FileOutputStream output =
                         new FileOutputStream(file);
@@ -230,14 +296,18 @@ public class MainActivity extends Activity {
                 output.flush();
                 output.close();
 
-                Uri uri = FileProvider.getUriForFile(
-                        MainActivity.this,
-                        getPackageName() + ".fileprovider",
-                        file
-                );
+                Uri uri =
+                        FileProvider.getUriForFile(
+                                MainActivity.this,
+                                getPackageName()
+                                        + ".fileprovider",
+                                file
+                        );
 
                 Intent shareIntent =
-                        new Intent(Intent.ACTION_SEND);
+                        new Intent(
+                                Intent.ACTION_SEND
+                        );
 
                 shareIntent.setType(
                         mimeType != null
@@ -272,6 +342,9 @@ public class MainActivity extends Activity {
         }
     }
 
+    /*
+     * اختيار الملفات من مدير الملفات
+     */
     @Override
     protected void onActivityResult(
             int requestCode,
@@ -284,86 +357,108 @@ public class MainActivity extends Activity {
                 data
         );
 
-        if (requestCode == FILE_CHOOSER_REQUEST) {
-
-            if (filePathCallback == null) {
-                return;
-            }
-
-            Uri[] results = null;
-
-            if (resultCode == RESULT_OK && data != null) {
-
-                if (data.getClipData() != null) {
-
-                    int count =
-                            data.getClipData().getItemCount();
-
-                    results = new Uri[count];
-
-                    for (int i = 0; i < count; i++) {
-
-                        results[i] =
-                                data.getClipData()
-                                        .getItemAt(i)
-                                        .getUri();
-                    }
-
-                } else if (data.getData() != null) {
-
-                    results =
-                            new Uri[]{
-                                    data.getData()
-                            };
-                }
-            }
-
-            filePathCallback.onReceiveValue(results);
-            filePathCallback = null;
+        if (requestCode != FILE_CHOOSER_REQUEST) {
+            return;
         }
+
+        if (filePathCallback == null) {
+            return;
+        }
+
+        Uri[] results = null;
+
+        if (
+                resultCode == RESULT_OK &&
+                data != null
+        ) {
+
+            if (data.getClipData() != null) {
+
+                int count =
+                        data.getClipData()
+                                .getItemCount();
+
+                results =
+                        new Uri[count];
+
+                for (int i = 0; i < count; i++) {
+
+                    results[i] =
+                            data.getClipData()
+                                    .getItemAt(i)
+                                    .getUri();
+                }
+
+            } else if (data.getData() != null) {
+
+                results =
+                        new Uri[]{
+                                data.getData()
+                        };
+            }
+        }
+
+        filePathCallback.onReceiveValue(
+                results
+        );
+
+        filePathCallback = null;
     }
 
     /*
      * طباعة صفحة WebView
      */
-    public void printPage(String jobName) {
+    public void printPage(
+            String jobName) {
 
-        PrintManager printManager =
-                (PrintManager) getSystemService(
-                        Context.PRINT_SERVICE
-                );
+        android.print.PrintManager printManager =
+                (android.print.PrintManager)
+                        getSystemService(
+                                Context.PRINT_SERVICE
+                        );
 
-        PrintAttributes attributes =
-                new PrintAttributes.Builder()
+        android.print.PrintAttributes attributes =
+                new android.print.PrintAttributes.Builder()
                         .setMediaSize(
-                                PrintAttributes.MediaSize.ISO_A4
+                                android.print.PrintAttributes
+                                        .MediaSize.ISO_A4
                         )
                         .setResolution(
-                                new PrintAttributes.Resolution(
-                                        "pdf",
-                                        "pdf",
-                                        600,
-                                        600
-                                )
+                                new android.print.PrintAttributes
+                                        .Resolution(
+                                                "pdf",
+                                                "pdf",
+                                                600,
+                                                600
+                                        )
                         )
                         .setMinMargins(
-                                PrintAttributes.Margins.NO_MARGINS
+                                android.print.PrintAttributes
+                                        .Margins.NO_MARGINS
                         )
                         .build();
 
         printManager.print(
                 jobName,
-                webView.createPrintDocumentAdapter(jobName),
+                webView.createPrintDocumentAdapter(
+                        jobName
+                ),
                 attributes
         );
     }
 
+    /*
+     * زر الرجوع
+     */
     @Override
     public void onBackPressed() {
 
         if (webView.canGoBack()) {
+
             webView.goBack();
+
         } else {
+
             super.onBackPressed();
         }
     }
