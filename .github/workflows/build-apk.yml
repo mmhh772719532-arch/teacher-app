@@ -30,6 +30,8 @@ jobs:
 
       - name: Prepare HTML assets
         run: |
+          set -e
+
           ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
@@ -37,17 +39,38 @@ jobs:
             exit 1
           fi
 
-          echo "Found: $ZIP_FILE"
+          echo "Found ZIP: $ZIP_FILE"
 
+          rm -rf /tmp/html_project
           rm -rf app/src/main/assets
+
+          mkdir -p /tmp/html_project
           mkdir -p app/src/main/assets
 
           unzip -o "$ZIP_FILE" -d /tmp/html_project
 
-          cp -R /tmp/html_project/* app/src/main/assets/
+          echo "Searching for index.html..."
 
-          echo "Assets:"
-          find app/src/main/assets -maxdepth 3 -type f
+          INDEX_FILE=$(find /tmp/html_project -type f -name "index.html" | head -n 1)
+
+          if [ -z "$INDEX_FILE" ]; then
+            echo "ERROR: index.html not found"
+            exit 1
+          fi
+
+          echo "Found index.html: $INDEX_FILE"
+
+          HTML_DIR=$(dirname "$INDEX_FILE")
+
+          echo "Copying HTML project from: $HTML_DIR"
+
+          cp -R "$HTML_DIR"/. app/src/main/assets/
+
+          echo "Final assets:"
+          find app/src/main/assets -type f
+
+          echo "Checking index.html:"
+          ls -lh app/src/main/assets/index.html
 
       - name: Build APK
         run: gradle assembleDebug
