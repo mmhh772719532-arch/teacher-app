@@ -49,8 +49,6 @@ jobs:
 
           unzip -o "$ZIP_FILE" -d /tmp/html_project
 
-          echo "Searching for index.html..."
-
           INDEX_FILE=$(find /tmp/html_project -type f -name "index.html" | head -n 1)
 
           if [ -z "$INDEX_FILE" ]; then
@@ -58,19 +56,471 @@ jobs:
             exit 1
           fi
 
-          echo "Found index.html: $INDEX_FILE"
-
           HTML_DIR=$(dirname "$INDEX_FILE")
-
-          echo "Copying HTML project from: $HTML_DIR"
 
           cp -R "$HTML_DIR"/. app/src/main/assets/
 
-          echo "Final assets:"
-          find app/src/main/assets -type f
+          echo "Assets prepared:"
+          find app/src/main/assets -maxdepth 2 -type f
 
-          echo "Checking index.html:"
-          ls -lh app/src/main/assets/index.html
+      - name: Add Android native bridge
+        run: |
+          set -e
+
+          mkdir -p app/src/main/res/xml
+
+          cat > app/src/main/java/com/teacher/pro/MainActivity.java <<'JAVA'
+          package com.teacher.pro;
+
+          import android.app.Activity;
+          import android.app.PrintManager;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.util.Base64;
+          import android.webkit.JavascriptInterface;
+          import android.webkit.ValueCallback;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          import androidx.core.content.FileProvider;
+
+          import java.io.File;
+          import java.io.FileOutputStream;
+          import java.io.OutputStream;
+
+          public class MainActivity extends Activity {
+
+              private WebView webView;
+
+              private ValueCallback<Uri[]> filePathCallback;
+
+              private static final int FILE_CHOOSER_REQUEST = 1001;
+              private static final int CREATE_FILE_REQUEST = 1002;
+
+              private byte[] pendingFileBytes;
+              private String pendingFileName;
+              private String pendingMimeType;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  webView = new WebView(this);
+                  setContentView(webView);
+
+                  WebSettings settings = webView.getSettings();
+
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setAllowFileAccess(true);
+                  settings.setAllowContentAccess(true);
+
+                  webView.setWebViewClient(new WebViewClient());
+
+                  webView.setWebChromeClient(new WebChromeClient() {
+
+                      @Override
+                      public boolean onShowFileChooser(
+                              WebView webView,
+                              ValueCallback<Uri[]> filePathCallback,
+                              FileChooserParams fileChooserParams) {
+
+                          if (MainActivity.this.filePathCallback != null) {
+                              MainActivity.this.filePathCallback.onReceiveValue(null);
+                          }
+
+                          MainActivity.this.filePathCallback = filePathCallback;
+
+                          Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                          intent.addCategory(Intent.CATEGORY_OPENABLE);
+
+                          String[] types = fileChooserParams.getAcceptTypes();
+
+                          if (types != null && types.length > 0 && !types[0].isEmpty()) {
+                              intent.setType(types[0]);
+                          } else {
+                              intent.setType("*/*");
+                          }
+
+                          startActivityForResult(intent, FILE_CHOOSER_REQUEST);
+
+                          return true;
+                      }
+                  });
+
+                  webView.addJavascriptInterface(new AndroidBridge(), "Android");
+
+                  webView.loadUrl("file:///android_asset/index.html");
+              }
+
+              private class AndroidBridge {
+
+                  @JavascriptInterface
+                  public void saveBase64File(
+                          String base64,
+                          String mimeType,
+                          String fileName) {
+
+                      try {
+                          pendingFileBytes = Base64.decode(base64, Base64.DEFAULT);
+                          pendingFileName = fileName;
+                          pendingMimeType = mimeType;
+
+                          Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                          intent.addCategory(Intent.CATEGORY_OPENABLE);
+                          intent.setType(mimeType);
+                          intent.putExtra(Intent.EXTRA_TITLE, fileName);
+
+                          startActivityForResult(intent, CREATE_FILE_REQUEST);
+
+                      } catch (Exception e) {
+                          e.printStackTrace();
+                      }
+                  }
+
+                  @JavascriptInterface
+                  public void shareBase64File(
+                          String base64,
+                          String mimeType,
+                          String fileName) {
+
+                      try {
+                          byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
+
+                          File shareDir = new File(getCacheDir(), "shared");
+                          if (!shareDir.exists()) {
+                              shareDir.mkdirs();
+                          }
+
+                          File file = new File(shareDir, fileName);
+
+                          FileOutputStream fos = new FileOutputStream(file);
+                          fos.write(bytes);
+                          fos.close();
+
+                          Uri uri = FileProvider.getUriForFile(
+                                  MainActivity.this,
+                                  getPackageName() + ".fileprovider",
+                                  file
+                          );
+
+                          Intent shareIntent = new Intent(Intent.ACTION_SEND);
+                          shareIntent.setType(mimeType);
+                          shareIntent.putExtra(Intent.EXTRA_STREAM, uri);
+                          shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+                          startActivity(
+                                  Intent.createChooser(
+                                          shareIntent,
+                                          "مشاركة الملف"
+                                  )
+                          );
+
+                      } catch (Exception e) {
+                          e.printStackTrace();
+                      }
+                  }
+
+                  @JavascriptInterface
+                  public void printWebView() {
+
+                      try {
+                          PrintManager printManager =
+                                  (PrintManager) getSystemService(Context.PRINT_SERVICE);
+
+                          if (printManager != null) {
+
+                              android.print.PrintDocumentAdapter adapter =
+                                      webView.createPrintDocumentAdapter(
+                                              "تقرير المعلم"
+                                      );
+
+                              printManager.print(
+                                      "تقرير المعلم",
+                                      adapter,
+                                      null
+                              );
+                          }
+
+                      } catch (Exception e) {
+                          e.printStackTrace();
+                      }
+                  }
+              }
+
+              @Override
+              protected void onActivityResult(
+                      int requestCode,
+                      int resultCode,
+                      Intent data) {
+
+                  super.onActivityResult(
+                          requestCode,
+                          resultCode,
+                          data
+                  );
+
+                  if (requestCode == FILE_CHOOSER_REQUEST) {
+
+                      if (filePathCallback != null) {
+
+                          Uri[] results = null;
+
+                          if (resultCode == RESULT_OK && data != null) {
+
+                              Uri uri = data.getData();
+
+                              if (uri != null) {
+                                  results = new Uri[]{uri};
+                              }
+                          }
+
+                          filePathCallback.onReceiveValue(results);
+                          filePathCallback = null;
+                      }
+
+                  } else if (requestCode == CREATE_FILE_REQUEST) {
+
+                      if (resultCode == RESULT_OK &&
+                              data != null &&
+                              data.getData() != null &&
+                              pendingFileBytes != null) {
+
+                          try {
+
+                              Uri uri = data.getData();
+
+                              OutputStream outputStream =
+                                      getContentResolver().openOutputStream(uri);
+
+                              if (outputStream != null) {
+
+                                  outputStream.write(pendingFileBytes);
+                                  outputStream.flush();
+                                  outputStream.close();
+                              }
+
+                          } catch (Exception e) {
+                              e.printStackTrace();
+                          }
+                      }
+
+                      pendingFileBytes = null;
+                      pendingFileName = null;
+                      pendingMimeType = null;
+                  }
+              }
+
+              @Override
+              public void onBackPressed() {
+
+                  if (webView.canGoBack()) {
+                      webView.goBack();
+                  } else {
+                      super.onBackPressed();
+                  }
+              }
+          }
+          JAVA
+
+          cat > app/src/main/res/xml/provider_paths.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths xmlns:android="http://schemas.android.com/apk/res/android">
+              <cache-path
+                  name="shared_files"
+                  path="shared/" />
+          </paths>
+          XML
+
+          cat > app/src/main/AndroidManifest.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+
+              <application
+                  android:allowBackup="true"
+                  android:label="تطبيق المعلم المحترف الشامل"
+                  android:supportsRtl="true"
+                  android:theme="@style/AppTheme">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+
+                  </activity>
+
+                  <provider
+                      android:name="androidx.core.content.FileProvider"
+                      android:authorities="${applicationId}.fileprovider"
+                      android:exported="false"
+                      android:grantUriPermissions="true">
+
+                      <meta-data
+                          android:name="android.support.FILE_PROVIDER_PATHS"
+                          android:resource="@xml/provider_paths" />
+
+                  </provider>
+
+              </application>
+
+          </manifest>
+          XML
+
+      - name: Patch HTML for Android
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          p = Path("app/src/main/assets/index.html")
+          s = p.read_text(encoding="utf-8")
+
+          bridge = r'''
+          <script>
+          (function(){
+
+              function blobToBase64(blob, callback) {
+
+                  var reader = new FileReader();
+
+                  reader.onloadend = function() {
+
+                      var result = reader.result || "";
+
+                      var base64 =
+                          result.indexOf(",") >= 0
+                          ? result.split(",")[1]
+                          : result;
+
+                      callback(
+                          base64,
+                          blob.type || "application/octet-stream"
+                      );
+                  };
+
+                  reader.readAsDataURL(blob);
+              }
+
+              window.print = function() {
+
+                  if (window.Android &&
+                      Android.printWebView) {
+
+                      Android.printWebView();
+                  }
+              };
+
+              window.saveAs = function(blob, filename) {
+
+                  if (window.Android &&
+                      Android.saveBase64File) {
+
+                      blobToBase64(
+                          blob,
+                          function(base64, mime) {
+
+                              Android.saveBase64File(
+                                  base64,
+                                  mime,
+                                  filename || "download"
+                              );
+                          }
+                      );
+
+                  } else {
+
+                      alert("الحفظ يحتاج إلى تشغيل التطبيق على Android");
+                  }
+              };
+
+              if (window.navigator) {
+
+                  navigator.canShare = function(data) {
+
+                      return !!(
+                          window.Android &&
+                          Android.shareBase64File &&
+                          data &&
+                          data.files &&
+                          data.files.length
+                      );
+                  };
+
+                  navigator.share = function(data) {
+
+                      return new Promise(function(resolve, reject) {
+
+                          if (!data ||
+                              !data.files ||
+                              !data.files.length) {
+
+                              reject("لا يوجد ملف للمشاركة");
+                              return;
+                          }
+
+                          var file = data.files[0];
+
+                          blobToBase64(
+                              file,
+                              function(base64, mime) {
+
+                                  if (window.Android &&
+                                      Android.shareBase64File) {
+
+                                      Android.shareBase64File(
+                                          base64,
+                                          mime,
+                                          file.name || "report.pdf"
+                                      );
+
+                                      resolve();
+                                  } else {
+
+                                      reject("المشاركة غير متاحة");
+                                  }
+                              }
+                          );
+                      });
+                  };
+              }
+
+          })();
+          </script>
+          '''
+
+          if "Android.saveBase64File" not in s:
+              s = s.replace("</body>", bridge + "\n</body>")
+
+          p.write_text(s, encoding="utf-8")
+          print("HTML patched successfully")
+          PY
+
+      - name: Add AndroidX dependency
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          p = Path("app/build.gradle")
+          s = p.read_text(encoding="utf-8")
+
+          if "androidx.core:core" not in s:
+              s = s.replace(
+                  "dependencies {",
+                  "dependencies {\n    implementation 'androidx.core:core:1.15.0'"
+              )
+
+          p.write_text(s, encoding="utf-8")
+          print("Gradle dependency added")
+          PY
 
       - name: Build APK
         run: gradle assembleDebug
