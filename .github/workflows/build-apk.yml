@@ -28,8 +28,34 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      - name: Prepare HTML assets
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: ZIP file not found"
+            exit 1
+          fi
+
+          echo "Found: $ZIP_FILE"
+
+          rm -rf app/src/main/assets
+          mkdir -p app/src/main/assets
+
+          unzip -o "$ZIP_FILE" -d /tmp/html_project
+
+          cp -R /tmp/html_project/* app/src/main/assets/
+
+          echo "Assets:"
+          find app/src/main/assets -maxdepth 3 -type f
+
       - name: Build APK
         run: gradle assembleDebug
+
+      - name: Check APK
+        run: |
+          echo "APK files:"
+          find app/build/outputs -type f -name "*.apk" -exec ls -lh {} \;
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
