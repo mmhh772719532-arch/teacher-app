@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.print.PrintAttributes;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -19,7 +20,6 @@ import androidx.core.content.FileProvider;
 
 import java.io.File;
 import java.io.FileOutputStream;
-import java.util.Base64;
 
 public class MainActivity extends Activity {
 
@@ -58,7 +58,6 @@ public class MainActivity extends Activity {
                 filePathCallback = callback;
 
                 try {
-
                     Intent intent = params.createIntent();
 
                     startActivityForResult(
@@ -92,7 +91,7 @@ public class MainActivity extends Activity {
         );
 
         /*
-         * تحميل صفحة التطبيق
+         * WebView
          */
         webView.setWebViewClient(new WebViewClient() {
 
@@ -107,6 +106,9 @@ public class MainActivity extends Activity {
             }
         });
 
+        /*
+         * تحميل صفحة التطبيق
+         */
         webView.loadUrl(
                 "file:///android_asset/index.html"
         );
@@ -184,7 +186,7 @@ public class MainActivity extends Activity {
     }
 
     /*
-     * جسر JavaScript مع Android
+     * الجسر بين JavaScript و Android
      */
     public class AndroidBridge {
 
@@ -195,7 +197,7 @@ public class MainActivity extends Activity {
         }
 
         /*
-         * حفظ الملف
+         * حفظ الملفات
          */
         @JavascriptInterface
         public void saveFile(
@@ -209,8 +211,15 @@ public class MainActivity extends Activity {
                                 dataUrl.indexOf(",") + 1
                         );
 
+                /*
+                 * استخدام android.util.Base64
+                 * حتى يعمل التطبيق مع minSdk 23
+                 */
                 byte[] data =
-                        Base64.getDecoder().decode(base64);
+                        android.util.Base64.decode(
+                                base64,
+                                android.util.Base64.DEFAULT
+                        );
 
                 File downloads =
                         Environment.getExternalStoragePublicDirectory(
@@ -255,7 +264,7 @@ public class MainActivity extends Activity {
         }
 
         /*
-         * مشاركة الملف
+         * مشاركة الملفات
          */
         @JavascriptInterface
         public void shareFile(
@@ -271,7 +280,10 @@ public class MainActivity extends Activity {
                         );
 
                 byte[] data =
-                        Base64.getDecoder().decode(base64);
+                        android.util.Base64.decode(
+                                base64,
+                                android.util.Base64.DEFAULT
+                        );
 
                 File shareDir =
                         new File(
@@ -343,7 +355,7 @@ public class MainActivity extends Activity {
     }
 
     /*
-     * اختيار الملفات من مدير الملفات
+     * استقبال الملفات من مدير الملفات
      */
     @Override
     protected void onActivityResult(
